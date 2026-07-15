@@ -1,6 +1,6 @@
-# Market War — live site
+# Beyond All Markets — live site
 
-Single-page landing site for the **Market War** live stream: a 24/7 autonomous
+Single-page landing site for the **Beyond All Markets** live stream: a 24/7 autonomous
 Beyond All Reason RTS broadcast where real crypto and index order flow commands
 the armies.
 
