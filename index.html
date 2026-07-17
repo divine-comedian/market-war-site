@@ -190,14 +190,16 @@
 <div class="stagewrap">
   <div class="stage">
     <div class="monitor">
-      <span class="cam"><span class="rec"></span>Director cam</span>
+      <span class="cam" id="cam-label"><span class="rec"></span>Director cam</span>
       <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
-      <!-- LIVE EMBED: channel=UCTZ2PNoiJvryW6s47uKFTog auto-shows whatever is currently live on
-           the channel (best for a 24/7 stream whose video id changes each session).
-           For a specific broadcast instead, use https://www.youtube.com/embed/VIDEO_ID. -->
+      <!-- The embed source is chosen at runtime from state.json (see script at end of body):
+           mode "live"   -> live_stream?channel=… (whatever is currently live)
+           mode "replay" -> a specific archived match VIDEO_ID, looped.
+           The hardcoded src below is the safe fallback if state.json can't be read. -->
       <iframe
+        id="stream-embed"
         src="https://www.youtube.com/embed/live_stream?channel=UCTZ2PNoiJvryW6s47uKFTog&autoplay=1&mute=1"
-        title="Beyond All Markets — live director cam"
+        title="Beyond All Markets — director cam"
         allow="autoplay; encrypted-media; picture-in-picture"
         allowfullscreen
         loading="lazy"></iframe>
@@ -281,9 +283,40 @@
   <div class="wrap row">
     <span class="brand">◢ Beyond All Markets</span>
     <span>Autonomous market-driven RTS · rendered live on cloud GPU</span>
-    <span><a href="https://www.youtube.com/embed/live_stream?channel=UCTZ2PNoiJvryW6s47uKFTog">Watch on YouTube ↗</a></span>
+    <span><a href="https://www.youtube.com/@divin3comedian/streams" target="_blank" rel="noopener">Watch on YouTube ↗</a></span>
   </div>
 </footer>
+
+<script>
+// Pick the director-cam embed at runtime from state.json, published by the daily
+// stream workflow (.github/workflows/stream-*.yml):
+//   { "mode": "live",   "channelId": "UC…" }              -> the current live stream
+//   { "mode": "replay", "channelId": "UC…", "videoId": "…" } -> that archived match, looped
+// Any fetch/parse failure leaves the hardcoded live embed in place (safe default).
+(function () {
+  var FALLBACK_CH = "UCTZ2PNoiJvryW6s47uKFTog";
+  var frame = document.getElementById("stream-embed");
+  var label = document.getElementById("cam-label");
+  if (!frame) return;
+  fetch("state.json?_=" + Date.now(), { cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (s) {
+      if (!s || typeof s !== "object") return;
+      var ch = s.channelId || FALLBACK_CH;
+      var base = "https://www.youtube.com/embed/";
+      var src;
+      if (s.mode === "replay" && s.videoId) {
+        var v = encodeURIComponent(s.videoId);
+        src = base + v + "?autoplay=1&mute=1&loop=1&playlist=" + v + "&rel=0";
+        if (label) label.innerHTML = '<span class="rec" style="animation:none;opacity:.5"></span>Latest match';
+      } else {
+        src = base + "live_stream?channel=" + encodeURIComponent(ch) + "&autoplay=1&mute=1";
+      }
+      if (frame.getAttribute("src") !== src) frame.setAttribute("src", src);
+    })
+    .catch(function () { /* keep the fallback live embed */ });
+})();
+</script>
 
 </body>
 </html>
