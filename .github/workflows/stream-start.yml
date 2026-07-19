@@ -8,8 +8,14 @@ name: stream-start
 # run it by hand any time via "Run workflow" (workflow_dispatch).
 #
 # Requires: secret VAST_API_KEY; vars VAST_INSTANCE_ID, YT_CHANNEL_ID (repo Settings →
-# Secrets and variables → Actions). Vercel deploys this repo's main, so the state.json commit
-# below triggers a redeploy.
+# Secrets and variables → Actions). Optional var VAST_FALLBACK_INSTANCE_ID (defaults to the
+# second box). Vercel deploys this repo's main, so the state.json commit triggers a redeploy.
+#
+# WHY THE FALLBACK + POLLING: stopping a Vast instance releases its GPU back to the market.
+# If someone else rents it, "vastai start" prints "Required resources are currently
+# unavailable, state change queued." and exits 0 — the box never boots and a naive workflow
+# goes green anyway (this silently killed the stream on 2026-07-18/19). So: verify the box
+# actually reaches "running", fall back to the second box, and go RED if neither starts.
 
 on:
   workflow_dispatch: {}
@@ -29,10 +35,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start the Vast GPU box
+      - name: Start a Vast GPU box (primary, then fallback)
+        env:
+          VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
+          PRIMARY: ${{ vars.VAST_INSTANCE_ID }}
+          FALLBACK: ${{ vars.VAST_FALLBACK_INSTANCE_ID || '44930041' }}
         run: |
           python3 -m pip install --quiet vastai
-          vastai start instance "${{ vars.VAST_INSTANCE_ID }}" --api-key "${{ secrets.VAST_API_KEY }}"
+
+          status_of() {
+            vastai show instance "$1" --api-key "$VAST_API_KEY" --raw 2>/dev/null \
+              | python3 -c "import json,sys; print(json.load(sys.stdin).get('actual_status',''))" \
+              || true
+          }
+
+          start_and_wait() {
+            local id="$1"
+            local out
+            out=$(vastai start instance "$id" --api-key "$VAST_API_KEY" 2>&1) || true
+            echo "vastai start $id → $out"
+            # poll up to 4 min for the box to actually reach "running"
+            for i in $(seq 1 24); do
+              local st
+              st=$(status_of "$id")
+              echo "  [$i] instance $id actual_status=$st"
+              [ "$st" = "running" ] && return 0
+              sleep 10
+            done
+            # cancel the queued state change so this box can't boot later and fight
+            # the fallback for the same YouTube RTMP key
+            vastai stop instance "$id" --api-key "$VAST_API_KEY" || true
+            return 1
+          }
+
+          if start_and_wait "$PRIMARY"; then
+            echo "STARTED=$PRIMARY" >> "$GITHUB_ENV"
+          elif start_and_wait "$FALLBACK"; then
+            echo "STARTED=$FALLBACK" >> "$GITHUB_ENV"
+          else
+            echo "::error::Neither Vast instance ($PRIMARY, $FALLBACK) could start — no GPU available. NO STREAM TODAY unless retried."
+            exit 1
+          fi
+          echo "box $STARTED is running"
 
       - name: Point the site at the LIVE stream
         run: |
@@ -44,5 +88,5 @@ jobs:
           git config user.name  "stream-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add state.json
-          git diff --cached --quiet || git commit -m "chore: live mode — daily stream start"
+          git diff --cached --quiet || git commit -m "chore: live mode — daily stream start (box $STARTED)"
           git push

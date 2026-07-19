@@ -6,6 +6,10 @@ name: stream-stop
 #
 # SAFETY: scheduled runs ONLY fire from this repo's DEFAULT branch (main) — see stream-start.yml.
 # Requires: secrets VAST_API_KEY, YT_API_KEY; vars VAST_INSTANCE_ID, YT_CHANNEL_ID.
+#
+# Stops BOTH boxes (primary + fallback): stream-start may have booted the fallback when the
+# primary's GPU was taken, and stopping an already-stopped instance is a harmless no-op. A
+# stop also cancels any still-queued start on that instance.
 
 on:
   workflow_dispatch: {}
@@ -40,7 +44,14 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: replay mode — latest archived match"
           git push
 
-      - name: Stop the Vast GPU box
+      - name: Stop BOTH Vast GPU boxes
+        env:
+          VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
+          PRIMARY: ${{ vars.VAST_INSTANCE_ID }}
+          FALLBACK: ${{ vars.VAST_FALLBACK_INSTANCE_ID || '44930041' }}
         run: |
           python3 -m pip install --quiet vastai
-          vastai stop instance "${{ vars.VAST_INSTANCE_ID }}" --api-key "${{ secrets.VAST_API_KEY }}"
+          rc=0
+          vastai stop instance "$PRIMARY"  --api-key "$VAST_API_KEY" || rc=1
+          vastai stop instance "$FALLBACK" --api-key "$VAST_API_KEY" || rc=1
+          exit $rc
