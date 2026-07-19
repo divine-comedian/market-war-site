@@ -29,7 +29,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # TEMP GUARD — 2026-07-19 ONLY: the stream started late (17:19 UTC) so the normal
+      # 19:00 UTC scheduled stop would cut it short; a manual dispatch at ~20:45 UTC does
+      # the real stop today. Self-expiring (date check), but remove after today.
+      - name: Skip today's early scheduled stop
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%Y-%m-%d)" = "2026-07-19" ]; then
+            echo "2026-07-19 exception: skipping scheduled stop (manual stop at ~20:45 UTC)"
+            echo "SKIP_STOP=1" >> "$GITHUB_ENV"
+          fi
+
       - name: Point the site at the latest archived match
+        if: env.SKIP_STOP != '1'
         env:
           YT_API_KEY: ${{ secrets.YT_API_KEY }}
         run: |
@@ -37,6 +49,7 @@ jobs:
             --mode replay --channel "${{ vars.YT_CHANNEL_ID }}" --out state.json
 
       - name: Commit & push state.json
+        if: env.SKIP_STOP != '1'
         run: |
           git config user.name  "stream-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -45,6 +58,7 @@ jobs:
           git push
 
       - name: Stop BOTH Vast GPU boxes
+        if: env.SKIP_STOP != '1'
         env:
           VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
           PRIMARY: ${{ vars.VAST_INSTANCE_ID }}
