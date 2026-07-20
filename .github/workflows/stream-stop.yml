@@ -42,6 +42,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add state.json
           git diff --cached --quiet || git commit -m "chore: replay mode — latest archived match"
+          git pull --rebase origin main
           git push
 
       - name: Stop BOTH Vast GPU boxes
